@@ -5,7 +5,7 @@ const API_TOKEN = process.env.WB_API_TOKEN;
 const STOCKS_URL =
   "https://statistics-api.wildberries.ru/api/v1/supplier/stocks";
 
-const ALERT_THRESHOLD = 5;
+const ALERT_THRESHOLD = 30;
 
 function getStockStatus(qty) {
   if (qty === 0) return "out_of_stock";
