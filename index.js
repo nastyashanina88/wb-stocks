@@ -1,49 +1,6 @@
-require("dotenv").config();
-const axios = require("axios");
 const ExcelJS = require("exceljs");
 const path = require("path");
-
-const API_TOKEN = process.env.WB_API_TOKEN;
-const STOCKS_URL =
-  "https://statistics-api.wildberries.ru/api/v1/supplier/stocks";
-
-const ALERT_THRESHOLD = 5;
-
-if (!API_TOKEN) {
-  console.error("Ошибка: переменная WB_API_TOKEN не задана в .env");
-  process.exit(1);
-}
-
-function getStockStatus(qty) {
-  if (qty === 0) return "out_of_stock";
-  if (qty <= ALERT_THRESHOLD) return "critical";
-  return "in_stock";
-}
-
-async function fetchStocks() {
-  const allStocks = [];
-  let dateFrom = "2019-01-01";
-
-  console.log("Загрузка остатков с Wildberries...");
-
-  while (true) {
-    const { data } = await axios.get(STOCKS_URL, {
-      params: { dateFrom },
-      headers: { Authorization: API_TOKEN },
-    });
-
-    if (!data || data.length === 0) break;
-
-    allStocks.push(...data);
-    console.log(`  Получено записей: ${allStocks.length}`);
-
-    if (data.length < 60000) break;
-
-    dateFrom = data[data.length - 1].lastChangeDate;
-  }
-
-  return allStocks;
-}
+const { fetchStocks, mapRows, ALERT_THRESHOLD } = require("./stocks");
 
 async function main() {
   try {
@@ -54,20 +11,7 @@ async function main() {
       return;
     }
 
-    const rows = stocks.map((item) => {
-      const qty = item.quantity ?? 0;
-      return {
-        warehouse: item.warehouseName ?? "",
-        supplierArticle: item.supplierArticle ?? "",
-        barcode: item.barcode ?? "",
-        quantity: qty,
-        brand: item.brand ?? "",
-        price: item.Price ?? "",
-        lastChangeDate: item.lastChangeDate ?? "",
-        stockStatus: getStockStatus(qty),
-      };
-    });
-
+    const rows = mapRows(stocks);
     const alerts = rows.filter((r) => r.quantity <= ALERT_THRESHOLD);
 
     // --- XLSX ---

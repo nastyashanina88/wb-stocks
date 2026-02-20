@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WB Stocks — Дашборд</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+    h1 { margin-bottom: 20px; font-size: 24px; }
+
+    .stats {
+      display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .stat-card {
+      background: #fff; border-radius: 8px; padding: 16px 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.1); min-width: 160px;
+    }
+    .stat-card .label { font-size: 13px; color: #888; margin-bottom: 4px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; }
+    .stat-card.critical .value { color: #e74c3c; }
+    .stat-card.out .value { color: #95a5a6; }
+    .stat-card.total .value { color: #2c3e50; }
+
+    .controls { margin-bottom: 16px; }
+    .controls input {
+      padding: 10px 14px; width: 100%; max-width: 400px;
+      border: 1px solid #ddd; border-radius: 6px; font-size: 14px;
+    }
+
+    .table-wrap {
+      background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.1);
+      overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; white-space: nowrap; }
+    th {
+      background: #fafafa; font-weight: 600; cursor: pointer; user-select: none;
+      position: sticky; top: 0;
+    }
+    th:hover { background: #f0f0f0; }
+    th .arrow { margin-left: 4px; font-size: 11px; color: #aaa; }
+
+    tr.out_of_stock { background: #fdecea; }
+    tr.critical { background: #fff8e1; }
+    tr.in_stock { background: #e8f5e9; }
+
+    .status-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 12px; font-weight: 600;
+    }
+    .status-badge.out_of_stock { background: #e74c3c; color: #fff; }
+    .status-badge.critical { background: #f39c12; color: #fff; }
+    .status-badge.in_stock { background: #27ae60; color: #fff; }
+
+    .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>WB Stocks — Остатки</h1>
+
+    <div class="stats">
+      <div class="stat-card total"><div class="label">Всего позиций</div><div class="value" id="totalCount">—</div></div>
+      <div class="stat-card critical"><div class="label">Критичных</div><div class="value" id="criticalCount">—</div></div>
+      <div class="stat-card out"><div class="label">Нет в наличии</div><div class="value" id="outCount">—</div></div>
+    </div>
+
+    <div class="controls">
+      <input type="text" id="search" placeholder="Поиск по артикулу, баркоду, бренду, складу...">
+    </div>
+
+    <div class="table-wrap">
+      <div class="loading" id="loading">Загрузка остатков...</div>
+      <table id="stocksTable" style="display:none">
+        <thead>
+          <tr>
+            <th data-col="warehouse">Склад <span class="arrow"></span></th>
+            <th data-col="supplierArticle">Артикул <span class="arrow"></span></th>
+            <th data-col="barcode">Баркод <span class="arrow"></span></th>
+            <th data-col="quantity">Кол-во <span class="arrow"></span></th>
+            <th data-col="brand">Бренд <span class="arrow"></span></th>
+            <th data-col="price">Цена <span class="arrow"></span></th>
+            <th data-col="stockStatus">Статус <span class="arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let allRows = [];
+    let sortCol = "quantity";
+    let sortAsc = true;
+
+    async function loadData() {
+      try {
+        const res = await fetch("/api/stocks");
+        const { rows } = await res.json();
+        allRows = rows;
+        updateStats();
+        renderTable();
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("stocksTable").style.display = "";
+      } catch (e) {
+        document.getElementById("loading").textContent = "Ошибка загрузки данных";
+      }
+    }
+
+    function updateStats() {
+      const filtered = getFilteredRows();
+      document.getElementById("totalCount").textContent = filtered.length;
+      document.getElementById("criticalCount").textContent = filtered.filter(r => r.stockStatus === "critical").length;
+      document.getElementById("outCount").textContent = filtered.filter(r => r.stockStatus === "out_of_stock").length;
+    }
+
+    function getFilteredRows() {
+      const q = document.getElementById("search").value.toLowerCase().trim();
+      if (!q) return allRows;
+      return allRows.filter(r =>
+        r.warehouse.toLowerCase().includes(q) ||
+        r.supplierArticle.toLowerCase().includes(q) ||
+        r.barcode.toLowerCase().includes(q) ||
+        r.brand.toLowerCase().includes(q)
+      );
+    }
+
+    function renderTable() {
+      const rows = getFilteredRows().slice().sort((a, b) => {
+        let va = a[sortCol], vb = b[sortCol];
+        if (typeof va === "number" && typeof vb === "number") {
+          return sortAsc ? va - vb : vb - va;
+        }
+        va = String(va).toLowerCase();
+        vb = String(vb).toLowerCase();
+        if (va < vb) return sortAsc ? -1 : 1;
+        if (va > vb) return sortAsc ? 1 : -1;
+        return 0;
+      });
+
+      const tbody = document.getElementById("tbody");
+      tbody.innerHTML = rows.map(r => `
+        <tr class="${r.stockStatus}">
+          <td>${esc(r.warehouse)}</td>
+          <td>${esc(r.supplierArticle)}</td>
+          <td>${esc(r.barcode)}</td>
+          <td>${r.quantity}</td>
+          <td>${esc(r.brand)}</td>
+          <td>${r.price}</td>
+          <td><span class="status-badge ${r.stockStatus}">${statusLabel(r.stockStatus)}</span></td>
+        </tr>
+      `).join("");
+
+      // Update sort arrows
+      document.querySelectorAll("th .arrow").forEach(el => el.textContent = "");
+      const activeHeader = document.querySelector(`th[data-col="${sortCol}"] .arrow`);
+      if (activeHeader) activeHeader.textContent = sortAsc ? "▲" : "▼";
+    }
+
+    function statusLabel(s) {
+      if (s === "out_of_stock") return "Нет";
+      if (s === "critical") return "Критично";
+      return "В наличии";
+    }
+
+    function esc(str) {
+      const d = document.createElement("div");
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    // Sort on header click
+    document.querySelectorAll("th[data-col]").forEach(th => {
+      th.addEventListener("click", () => {
+        const col = th.dataset.col;
+        if (sortCol === col) {
+          sortAsc = !sortAsc;
+        } else {
+          sortCol = col;
+          sortAsc = true;
+        }
+        renderTable();
+      });
+    });
+
+    // Search
+    document.getElementById("search").addEventListener("input", () => {
+      updateStats();
+      renderTable();
+    });
+
+    loadData();
+  </script>
+</body>
+</html>
