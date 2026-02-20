@@ -4,6 +4,9 @@ const axios = require("axios");
 const API_TOKEN = process.env.WB_API_TOKEN;
 const STOCKS_URL =
   "https://statistics-api.wildberries.ru/api/v1/supplier/stocks";
+const SALES_URL =
+  "https://statistics-api.wildberries.ru/api/v1/supplier/sales";
+const SALES_DAYS = 7;
 
 const ALERT_THRESHOLD = 30;
 
@@ -42,7 +45,39 @@ async function fetchStocks() {
   return allStocks;
 }
 
-function mapRows(stocks) {
+async function fetchSales() {
+  if (!API_TOKEN) {
+    throw new Error("Переменная WB_API_TOKEN не задана в .env");
+  }
+
+  const dateFrom = new Date(Date.now() - SALES_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  console.log(`Загрузка продаж за ${SALES_DAYS} дней (с ${dateFrom})...`);
+
+  const { data } = await axios.get(SALES_URL, {
+    params: { dateFrom },
+    headers: { Authorization: API_TOKEN },
+  });
+
+  console.log(`  Продаж получено: ${(data || []).length}`);
+  return data || [];
+}
+
+function buildSalesMap(sales) {
+  // Считаем кол-во продаж по ключу barcode+warehouse
+  const map = {};
+  for (const s of sales) {
+    // saleID начинается с "S" для продаж, "R" для возвратов
+    if (typeof s.saleID === "string" && s.saleID.startsWith("R")) continue;
+    const key = `${s.barcode}_${s.warehouseName}`;
+    map[key] = (map[key] || 0) + 1;
+  }
+  return map;
+}
+
+function mapRows(stocks, salesMap) {
   return stocks.map((item) => {
     const qty = item.quantity ?? 0;
     return {
@@ -51,11 +86,21 @@ function mapRows(stocks) {
       barcode: item.barcode ?? "",
       quantity: qty,
       brand: item.brand ?? "",
+      category: item.category ?? "",
+      subject: item.subject ?? "",
       price: item.Price ?? "",
       lastChangeDate: item.lastChangeDate ?? "",
       stockStatus: getStockStatus(qty),
+      daysUntilOOS: (() => {
+        if (qty === 0) return 0;
+        const key = `${item.barcode}_${item.warehouseName}`;
+        const totalSold = (salesMap && salesMap[key]) || 0;
+        if (totalSold === 0) return null; // нет продаж — не рассчитать
+        const avgPerDay = totalSold / SALES_DAYS;
+        return Math.round(qty / avgPerDay);
+      })(),
     };
   });
 }
 
-module.exports = { fetchStocks, getStockStatus, mapRows, ALERT_THRESHOLD };
+module.exports = { fetchStocks, fetchSales, buildSalesMap, getStockStatus, mapRows, ALERT_THRESHOLD };

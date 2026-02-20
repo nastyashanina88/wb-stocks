@@ -58,6 +58,47 @@
     .status-badge.critical { background: #f39c12; color: #fff; }
     .status-badge.in_stock { background: #27ae60; color: #fff; }
 
+    .multi-select {
+      position: relative; display: inline-block;
+    }
+    .multi-select .ms-btn {
+      padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 14px; background: #fff; min-width: 180px; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      white-space: nowrap;
+    }
+    .multi-select .ms-btn::after { content: "▾"; color: #888; }
+    .multi-select .ms-dropdown {
+      display: none; position: absolute; top: 100%; left: 0; z-index: 100;
+      background: #fff; border: 1px solid #ddd; border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.15); min-width: 220px; max-height: 300px;
+      overflow-y: auto; margin-top: 4px;
+    }
+    .multi-select.open .ms-dropdown { display: block; }
+    .multi-select .ms-search {
+      width: 100%; padding: 8px 12px; border: none; border-bottom: 1px solid #eee;
+      font-size: 13px; outline: none;
+    }
+    .multi-select .ms-item {
+      display: flex; align-items: center; padding: 6px 12px; cursor: pointer;
+      font-size: 13px;
+    }
+    .multi-select .ms-item:hover { background: #f5f5f5; }
+    .multi-select .ms-item input { margin-right: 8px; }
+    .multi-select .ms-item.hidden { display: none; }
+    .multi-select .ms-actions {
+      display: flex; justify-content: space-between; padding: 6px 12px;
+      border-top: 1px solid #eee; font-size: 12px;
+    }
+    .multi-select .ms-actions a {
+      color: #2980b9; cursor: pointer; text-decoration: none;
+    }
+    .multi-select .ms-actions a:hover { text-decoration: underline; }
+
+    .days-zero { color: #95a5a6; font-weight: 600; }
+    .days-danger { color: #e74c3c; font-weight: 700; }
+    .days-warn { color: #f39c12; font-weight: 600; }
+
     .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
   </style>
 </head>
@@ -75,6 +116,15 @@
       <input type="text" id="search" placeholder="Поиск по артикулу, баркоду, бренду, складу...">
       <select id="filterWarehouse"><option value="">Все склады</option></select>
       <select id="filterBrand"><option value="">Все бренды</option></select>
+      <select id="filterCategory"><option value="">Все категории</option></select>
+      <div class="multi-select" id="msSubject">
+        <div class="ms-btn" id="msSubjectBtn">Все товары</div>
+        <div class="ms-dropdown">
+          <input type="text" class="ms-search" placeholder="Поиск...">
+          <div class="ms-actions"><a class="ms-all">Все</a><a class="ms-none">Сбросить</a></div>
+          <div class="ms-list"></div>
+        </div>
+      </div>
       <select id="filterStatus">
         <option value="">Все статусы</option>
         <option value="in_stock">В наличии</option>
@@ -93,7 +143,10 @@
             <th data-col="barcode">Баркод <span class="arrow"></span></th>
             <th data-col="quantity">Кол-во <span class="arrow"></span></th>
             <th data-col="brand">Бренд <span class="arrow"></span></th>
+            <th data-col="category">Категория <span class="arrow"></span></th>
+            <th data-col="subject">Предмет <span class="arrow"></span></th>
             <th data-col="price">Цена <span class="arrow"></span></th>
+            <th data-col="daysUntilOOS">Дней до OOS <span class="arrow"></span></th>
             <th data-col="stockStatus">Статус <span class="arrow"></span></th>
           </tr>
         </thead>
@@ -132,20 +185,29 @@
     function populateFilters() {
       const warehouses = [...new Set(allRows.map(r => r.warehouse))].sort();
       const brands = [...new Set(allRows.map(r => r.brand))].sort();
+      const categories = [...new Set(allRows.map(r => r.category))].sort();
+      const subjects = [...new Set(allRows.map(r => r.subject))].sort();
       const wSel = document.getElementById("filterWarehouse");
       const bSel = document.getElementById("filterBrand");
+      const cSel = document.getElementById("filterCategory");
       warehouses.forEach(w => { const o = document.createElement("option"); o.value = w; o.textContent = w; wSel.appendChild(o); });
       brands.forEach(b => { const o = document.createElement("option"); o.value = b; o.textContent = b; bSel.appendChild(o); });
+      categories.forEach(c => { const o = document.createElement("option"); o.value = c; o.textContent = c; cSel.appendChild(o); });
+      initMultiSelect("msSubject", subjects);
     }
 
     function getFilteredRows() {
       const q = document.getElementById("search").value.toLowerCase().trim();
       const fw = document.getElementById("filterWarehouse").value;
       const fb = document.getElementById("filterBrand").value;
+      const fc = document.getElementById("filterCategory").value;
+      const selectedSubjects = getMultiSelectValues("msSubject");
       const fs = document.getElementById("filterStatus").value;
       return allRows.filter(r => {
         if (fw && r.warehouse !== fw) return false;
         if (fb && r.brand !== fb) return false;
+        if (fc && r.category !== fc) return false;
+        if (selectedSubjects.length > 0 && !selectedSubjects.includes(r.subject)) return false;
         if (fs && r.stockStatus !== fs) return false;
         if (q && !(
           r.warehouse.toLowerCase().includes(q) ||
@@ -160,6 +222,10 @@
     function renderTable() {
       const rows = getFilteredRows().slice().sort((a, b) => {
         let va = a[sortCol], vb = b[sortCol];
+        // null values go to the end
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
         if (typeof va === "number" && typeof vb === "number") {
           return sortAsc ? va - vb : vb - va;
         }
@@ -178,7 +244,10 @@
           <td>${esc(r.barcode)}</td>
           <td>${r.quantity}</td>
           <td>${esc(r.brand)}</td>
+          <td>${esc(r.category)}</td>
+          <td>${esc(r.subject)}</td>
           <td>${r.price}</td>
+          <td class="${daysClass(r.daysUntilOOS)}">${r.daysUntilOOS === null ? '—' : r.daysUntilOOS}</td>
           <td><span class="status-badge ${r.stockStatus}">${statusLabel(r.stockStatus)}</span></td>
         </tr>
       `).join("");
@@ -187,6 +256,14 @@
       document.querySelectorAll("th .arrow").forEach(el => el.textContent = "");
       const activeHeader = document.querySelector(`th[data-col="${sortCol}"] .arrow`);
       if (activeHeader) activeHeader.textContent = sortAsc ? "▲" : "▼";
+    }
+
+    function daysClass(d) {
+      if (d === null) return "";
+      if (d === 0) return "days-zero";
+      if (d <= 7) return "days-danger";
+      if (d <= 14) return "days-warn";
+      return "";
     }
 
     function statusLabel(s) {
@@ -215,8 +292,85 @@
       });
     });
 
+    // --- Multi-select ---
+    function initMultiSelect(containerId, items) {
+      const container = document.getElementById(containerId);
+      const list = container.querySelector(".ms-list");
+      const btn = container.querySelector(".ms-btn");
+      const search = container.querySelector(".ms-search");
+
+      items.forEach(item => {
+        const label = document.createElement("label");
+        label.className = "ms-item";
+        label.innerHTML = `<input type="checkbox" value="${esc(item)}"> ${esc(item)}`;
+        list.appendChild(label);
+      });
+
+      // Toggle dropdown
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        document.querySelectorAll(".multi-select.open").forEach(el => { if (el !== container) el.classList.remove("open"); });
+        container.classList.toggle("open");
+        if (container.classList.contains("open")) search.focus();
+      });
+
+      // Search within dropdown
+      search.addEventListener("input", () => {
+        const q = search.value.toLowerCase();
+        list.querySelectorAll(".ms-item").forEach(item => {
+          const text = item.textContent.toLowerCase();
+          item.classList.toggle("hidden", !text.includes(q));
+        });
+      });
+      search.addEventListener("click", e => e.stopPropagation());
+
+      // Select all / none
+      container.querySelector(".ms-all").addEventListener("click", (e) => {
+        e.stopPropagation();
+        list.querySelectorAll("input[type=checkbox]").forEach(cb => cb.checked = true);
+        updateMsLabel(containerId);
+        updateStats(); renderTable();
+      });
+      container.querySelector(".ms-none").addEventListener("click", (e) => {
+        e.stopPropagation();
+        list.querySelectorAll("input[type=checkbox]").forEach(cb => cb.checked = false);
+        updateMsLabel(containerId);
+        updateStats(); renderTable();
+      });
+
+      // Checkbox change
+      list.addEventListener("change", () => {
+        updateMsLabel(containerId);
+        updateStats(); renderTable();
+      });
+    }
+
+    function getMultiSelectValues(containerId) {
+      const checks = document.getElementById(containerId).querySelectorAll(".ms-list input:checked");
+      return [...checks].map(c => c.value);
+    }
+
+    function updateMsLabel(containerId) {
+      const container = document.getElementById(containerId);
+      const btn = container.querySelector(".ms-btn");
+      const vals = getMultiSelectValues(containerId);
+      const total = container.querySelectorAll(".ms-list input").length;
+      if (vals.length === 0 || vals.length === total) {
+        btn.textContent = "Все товары";
+      } else if (vals.length <= 2) {
+        btn.textContent = vals.join(", ");
+      } else {
+        btn.textContent = `Выбрано: ${vals.length}`;
+      }
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener("click", () => {
+      document.querySelectorAll(".multi-select.open").forEach(el => el.classList.remove("open"));
+    });
+
     // Search & filters
-    ["search", "filterWarehouse", "filterBrand", "filterStatus"].forEach(id => {
+    ["search", "filterWarehouse", "filterBrand", "filterCategory", "filterStatus"].forEach(id => {
       document.getElementById(id).addEventListener(id === "search" ? "input" : "change", () => {
         updateStats();
         renderTable();

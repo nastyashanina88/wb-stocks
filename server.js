@@ -1,14 +1,15 @@
 const express = require("express");
 const path = require("path");
-const { fetchStocks, mapRows, ALERT_THRESHOLD } = require("./stocks");
+const { fetchStocks, fetchSales, buildSalesMap, mapRows, ALERT_THRESHOLD } = require("./stocks");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/api/stocks", async (req, res) => {
   try {
-    const stocks = await fetchStocks();
-    const rows = mapRows(stocks);
+    const [stocks, sales] = await Promise.all([fetchStocks(), fetchSales()]);
+    const salesMap = buildSalesMap(sales);
+    const rows = mapRows(stocks, salesMap);
     res.json({ rows, threshold: ALERT_THRESHOLD });
   } catch (err) {
     console.error("Ошибка загрузки остатков:", err.message);
