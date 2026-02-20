@@ -99,6 +99,13 @@
     .days-danger { color: #e74c3c; font-weight: 700; }
     .days-warn { color: #f39c12; font-weight: 600; }
 
+    .btn-export {
+      padding: 10px 18px; border: none; border-radius: 6px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      background: #27ae60; color: #fff; white-space: nowrap;
+    }
+    .btn-export:hover { background: #219a52; }
+
     .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
   </style>
 </head>
@@ -131,6 +138,7 @@
         <option value="critical">Критично</option>
         <option value="out_of_stock">Нет в наличии</option>
       </select>
+      <button class="btn-export" id="exportXlsx">Скачать XLSX</button>
     </div>
 
     <div class="table-wrap">
@@ -155,6 +163,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script>
     let allRows = [];
     let sortCol = "quantity";
@@ -375,6 +384,30 @@
         updateStats();
         renderTable();
       });
+    });
+
+    // Export XLSX
+    document.getElementById("exportXlsx").addEventListener("click", () => {
+      const rows = getFilteredRows();
+      if (rows.length === 0) return alert("Нет данных для экспорта");
+
+      const data = rows.map(r => ({
+        "Склад": r.warehouse,
+        "Артикул": r.supplierArticle,
+        "Баркод": r.barcode,
+        "Кол-во": r.quantity,
+        "Бренд": r.brand,
+        "Категория": r.category,
+        "Предмет": r.subject,
+        "Цена": r.price,
+        "Дней до OOS": r.daysUntilOOS ?? "",
+        "Статус": statusLabel(r.stockStatus),
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "stocks");
+      XLSX.writeFile(wb, "stocks_filtered.xlsx");
     });
 
     loadData();

@@ -103,4 +103,29 @@ function mapRows(stocks, salesMap) {
   });
 }
 
-module.exports = { fetchStocks, fetchSales, buildSalesMap, getStockStatus, mapRows, ALERT_THRESHOLD };
+function buildArticleSalesStats(sales, article) {
+  const q = article.toLowerCase();
+  const matched = sales.filter(
+    (s) => (s.supplierArticle || "").toLowerCase() === q
+  );
+
+  let sold = 0;
+  let returned = 0;
+  let revenue = 0;
+
+  for (const s of matched) {
+    if (typeof s.saleID === "string" && s.saleID.startsWith("R")) {
+      returned++;
+    } else {
+      sold++;
+      revenue += s.finishedPrice || 0;
+    }
+  }
+
+  return { sold, returned, revenue, totalRecords: matched.length };
+}
+
+module.exports = {
+  fetchStocks, fetchSales, buildSalesMap, buildArticleSalesStats,
+  getStockStatus, mapRows, ALERT_THRESHOLD, SALES_DAYS,
+};
