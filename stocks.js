@@ -9,6 +9,16 @@ const SALES_URL =
 const SALES_DAYS = 7;
 
 const ALERT_THRESHOLD = 30;
+const CACHE_TTL = Number(process.env.CACHE_TTL_MIN || 10) * 60 * 1000; // минуты → мс
+
+const cache = {
+  stocks: { data: null, ts: 0 },
+  sales:  { data: null, ts: 0 },
+};
+
+function isFresh(entry) {
+  return entry.data !== null && Date.now() - entry.ts < CACHE_TTL;
+}
 
 function getStockStatus(qty) {
   if (qty === 0) return "out_of_stock";
@@ -16,7 +26,7 @@ function getStockStatus(qty) {
   return "in_stock";
 }
 
-async function fetchStocks() {
+async function fetchStocksFromAPI() {
   if (!API_TOKEN) {
     throw new Error("Переменная WB_API_TOKEN не задана в .env");
   }
@@ -45,7 +55,17 @@ async function fetchStocks() {
   return allStocks;
 }
 
-async function fetchSales() {
+async function fetchStocks() {
+  if (isFresh(cache.stocks)) {
+    console.log("Остатки: из кэша");
+    return cache.stocks.data;
+  }
+  const data = await fetchStocksFromAPI();
+  cache.stocks = { data, ts: Date.now() };
+  return data;
+}
+
+async function fetchSalesFromAPI() {
   if (!API_TOKEN) {
     throw new Error("Переменная WB_API_TOKEN не задана в .env");
   }
@@ -63,6 +83,22 @@ async function fetchSales() {
 
   console.log(`  Продаж получено: ${(data || []).length}`);
   return data || [];
+}
+
+async function fetchSales() {
+  if (isFresh(cache.sales)) {
+    console.log("Продажи: из кэша");
+    return cache.sales.data;
+  }
+  const data = await fetchSalesFromAPI();
+  cache.sales = { data, ts: Date.now() };
+  return data;
+}
+
+function clearCache() {
+  cache.stocks = { data: null, ts: 0 };
+  cache.sales = { data: null, ts: 0 };
+  console.log("Кэш очищен");
 }
 
 function buildSalesMap(sales) {
@@ -127,5 +163,5 @@ function buildArticleSalesStats(sales, article) {
 
 module.exports = {
   fetchStocks, fetchSales, buildSalesMap, buildArticleSalesStats,
-  getStockStatus, mapRows, ALERT_THRESHOLD, SALES_DAYS,
+  getStockStatus, mapRows, clearCache, ALERT_THRESHOLD, SALES_DAYS,
 };

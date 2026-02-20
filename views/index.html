@@ -99,12 +99,18 @@
     .days-danger { color: #e74c3c; font-weight: 700; }
     .days-warn { color: #f39c12; font-weight: 600; }
 
-    .btn-export {
+    .btn-export, .btn-refresh {
       padding: 10px 18px; border: none; border-radius: 6px;
       font-size: 14px; font-weight: 600; cursor: pointer;
-      background: #27ae60; color: #fff; white-space: nowrap;
+      white-space: nowrap;
     }
+    .btn-export { background: #27ae60; color: #fff; }
     .btn-export:hover { background: #219a52; }
+    .btn-refresh { background: #3498db; color: #fff; }
+    .btn-refresh:hover { background: #2980b9; }
+    .btn-refresh:disabled { background: #95a5a6; cursor: not-allowed; }
+
+    .cache-info { font-size: 12px; color: #888; margin-left: auto; white-space: nowrap; }
 
     .loading { text-align: center; padding: 60px; color: #888; font-size: 16px; }
   </style>
@@ -139,6 +145,8 @@
         <option value="out_of_stock">Нет в наличии</option>
       </select>
       <button class="btn-export" id="exportXlsx">Скачать XLSX</button>
+      <button class="btn-refresh" id="refreshBtn">Обновить</button>
+      <span class="cache-info" id="cacheInfo"></span>
     </div>
 
     <div class="table-wrap">
@@ -172,8 +180,10 @@
     async function loadData() {
       try {
         const res = await fetch("/api/stocks");
-        const { rows } = await res.json();
-        allRows = rows;
+        const json = await res.json();
+        allRows = json.rows;
+        document.getElementById("cacheInfo").textContent =
+          "Загружено: " + new Date(json.cachedAt).toLocaleTimeString("ru-RU");
         populateFilters();
         updateStats();
         renderTable();
@@ -384,6 +394,21 @@
         updateStats();
         renderTable();
       });
+    });
+
+    // Refresh (clear cache + reload)
+    document.getElementById("refreshBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("refreshBtn");
+      btn.disabled = true;
+      btn.textContent = "Загрузка...";
+      try {
+        await fetch("/api/refresh", { method: "POST" });
+        await loadData();
+      } catch (e) {
+        alert("Ошибка обновления");
+      }
+      btn.disabled = false;
+      btn.textContent = "Обновить";
     });
 
     // Export XLSX
